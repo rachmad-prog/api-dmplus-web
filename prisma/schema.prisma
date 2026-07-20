@@ -104,6 +104,14 @@ model PixelSetting {
   updatedAt       DateTime @updatedAt
 }
 
+model BankSetting {
+  id              String   @id @default(cuid())
+  bankName        String?
+  accountNumber   String?
+  accountHolder   String?
+  updatedAt       DateTime @updatedAt
+}
+
 model AdminUser {
   id           String   @id @default(cuid())
   email        String   @unique

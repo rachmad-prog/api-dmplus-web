@@ -56,12 +56,21 @@ router.post(
       notifyAdminNewOrder(order, order.service).catch(() => {});
       notifyCustomerOrderCreated(order, order.service, payment).catch(() => {});
 
-      return res.status(201).json({
-        payment,
-        bankInfo: {
+      let bankSetting = await prisma.bankSetting.findFirst();
+      if (!bankSetting) {
+        bankSetting = {
           bankName: process.env.BANK_NAME,
           accountNumber: process.env.BANK_ACCOUNT_NUMBER,
           accountHolder: process.env.BANK_ACCOUNT_HOLDER,
+        };
+      }
+
+      return res.status(201).json({
+        payment,
+        bankInfo: {
+          bankName: bankSetting.bankName,
+          accountNumber: bankSetting.accountNumber,
+          accountHolder: bankSetting.accountHolder,
         },
         instructions: "Transfer sesuai nominal, lalu tunggu konfirmasi admin (maks 1x24 jam kerja). Simpan bukti transfer.",
       });
