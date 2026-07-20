@@ -112,6 +112,16 @@ model BankSetting {
   updatedAt       DateTime @updatedAt
 }
 
+model SiteSetting {
+  id              String   @id @default(cuid())
+  // "PAYMENT_GATEWAY" -> tombol paket ke checkout (Midtrans / transfer manual)
+  // "CTWA"            -> tombol paket langsung ke WhatsApp (Click to WhatsApp Ads)
+  pricingMode     String   @default("PAYMENT_GATEWAY")
+  ctwaWhatsapp    String?  // nomor WA khusus CTWA, kosong = pakai VITE_WHATSAPP_NUMBER
+  ctwaMessage     String?  // template pesan WA, boleh pakai {paket} dan {harga}
+  updatedAt       DateTime @updatedAt
+}
+
 model AdminUser {
   id           String   @id @default(cuid())
   email        String   @unique

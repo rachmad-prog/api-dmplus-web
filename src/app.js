@@ -10,6 +10,7 @@ const paymentsRoutes = require("./routes/payments");
 const adminRoutes = require("./routes/admin");
 const pixelsRoutes = require("./routes/pixels");
 const bankSettingsRoutes = require("./routes/bankSettings");
+const siteSettingsRoutes = require("./routes/siteSettings");
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use("/api/payments", paymentsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/pixels", pixelsRoutes);
 app.use("/api/bank-settings", bankSettingsRoutes);
+app.use("/api/site-settings", siteSettingsRoutes);
 
 // Error handler terakhir
 app.use((err, req, res, next) => {
