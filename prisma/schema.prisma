@@ -1,0 +1,113 @@
+// Prisma schema — DB jasa pembuatan website
+// Jalankan: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  NEW           // order baru masuk, belum bayar
+  PENDING       // menunggu konfirmasi pembayaran
+  PAID          // pembayaran dikonfirmasi, mulai pengerjaan
+  COMPLETED     // website selesai diserahkan
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER   // manual transfer ke rekening, diverifikasi admin
+  MIDTRANS        // via Midtrans Snap (VA, e-wallet, kartu, dll)
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+}
+
+model Service {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  name          String
+  subtitle      String
+  domainType    String
+  pageCount     Int
+  priceOriginal Int
+  priceFinal    Int
+  workingDays   String
+  features      String[]
+  isPopular     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  invoiceNumber   String        @unique
+  serviceId       String
+  service         Service       @relation(fields: [serviceId], references: [id])
+
+  customerName    String
+  customerEmail   String
+  customerPhone   String
+  businessName    String?
+  notes           String?
+
+  totalAmount     Int           // priceFinal dari service saat order dibuat
+
+  status          OrderStatus   @default(NEW)
+  payments        Payment[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Payment {
+  id              String         @id @default(cuid())
+  orderId         String
+  order           Order          @relation(fields: [orderId], references: [id])
+
+  method          PaymentMethod
+  amount          Int
+  status          PaymentStatus  @default(PENDING)
+
+  // Midtrans
+  midtransOrderId String?        @unique
+  snapToken       String?
+  snapRedirectUrl String?
+  midtransRaw     Json?
+
+  // Bank transfer manual
+  bankSenderName  String?
+  bankProofUrl    String?
+  verifiedBy      String?
+  verifiedAt      DateTime?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model PixelSetting {
+  id              String   @id @default(cuid())
+  metaPixelId     String?
+  googleAdsId     String?
+  googleAdsLabel  String?
+  tiktokPixelId   String?
+  gtmContainerId  String?
+  updatedAt       DateTime @updatedAt
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+}
