@@ -43,6 +43,18 @@ router.post(
       return res.status(400).json({ error: "Pembayaran untuk order ini sudah diproses sebelumnya" });
     }
 
+    // Cegah pemakaian metode yang sedang dinonaktifkan admin (walaupun request
+    // dikirim langsung ke API, bukan lewat UI checkout).
+    const siteSetting = await prisma.siteSetting.findFirst();
+    const bankTransferEnabled = siteSetting?.enableBankTransfer ?? true;
+    const midtransEnabled = siteSetting?.enableMidtrans ?? true;
+    if (method === "BANK_TRANSFER" && !bankTransferEnabled) {
+      return res.status(400).json({ error: "Metode Transfer Bank Manual sedang tidak aktif" });
+    }
+    if (method === "MIDTRANS" && !midtransEnabled) {
+      return res.status(400).json({ error: "Metode pembayaran Midtrans sedang tidak aktif" });
+    }
+
     const amount = order.totalAmount;
 
     if (method === "BANK_TRANSFER") {

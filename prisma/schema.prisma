@@ -113,13 +113,19 @@ model BankSetting {
 }
 
 model SiteSetting {
-  id              String   @id @default(cuid())
+  id                  String   @id @default(cuid())
   // "PAYMENT_GATEWAY" -> tombol paket ke checkout (Midtrans / transfer manual)
   // "CTWA"            -> tombol paket langsung ke WhatsApp (Click to WhatsApp Ads)
-  pricingMode     String   @default("PAYMENT_GATEWAY")
-  ctwaWhatsapp    String?  // nomor WA khusus CTWA, kosong = pakai VITE_WHATSAPP_NUMBER
-  ctwaMessage     String?  // template pesan WA, boleh pakai {paket} dan {harga}
-  updatedAt       DateTime @updatedAt
+  pricingMode         String   @default("PAYMENT_GATEWAY")
+  ctwaWhatsapp        String?  // nomor WA khusus CTWA, kosong = pakai VITE_WHATSAPP_NUMBER
+  ctwaMessage         String?  // template pesan WA, boleh pakai {paket} dan {harga}
+
+  // Kontrol metode pembayaran di halaman checkout.
+  // Minimal salah satu harus tetap aktif (divalidasi di route).
+  enableBankTransfer  Boolean  @default(true)  // Transfer Bank Manual
+  enableMidtrans      Boolean  @default(true)  // Bayar Otomatis via Midtrans (VA/E-wallet/Kartu)
+
+  updatedAt           DateTime @updatedAt
 }
 
 model AdminUser {
