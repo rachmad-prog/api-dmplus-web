@@ -63,12 +63,8 @@ async function notifyAdminNewOrder(order, service) {
 }
 
 // Dikirim ke customer saat order + metode pembayaran dipilih
-async function notifyCustomerOrderCreated(order, service, payment) {
-  const bankInfo = {
-    bankName: process.env.BANK_NAME || "Mandiri",
-    accountNumber: process.env.BANK_ACCOUNT_NUMBER || "-",
-    accountHolder: process.env.BANK_ACCOUNT_HOLDER || "-",
-  };
+async function notifyCustomerOrderCreated(order, service, payment, bankInfo) {
+  bankInfo = bankInfo || { bankName: "-", accountNumber: "-", accountHolder: "-" };
 
   const isMidtrans = payment?.method === "MIDTRANS";
 

@@ -3,6 +3,7 @@ const { z } = require("zod");
 const prisma = require("../prisma");
 const { requireAdmin } = require("../middleware/auth");
 const asyncHandler = require("../middleware/asyncHandler");
+const { getBankInfo } = require("../services/bankInfo");
 
 const router = express.Router();
 
@@ -53,13 +54,11 @@ router.post(
       },
     });
 
+    const bankInfo = await getBankInfo();
+
     res.status(201).json({
       order,
-      bankInfo: {
-        bankName: process.env.BANK_NAME,
-        accountNumber: process.env.BANK_ACCOUNT_NUMBER,
-        accountHolder: process.env.BANK_ACCOUNT_HOLDER,
-      },
+      bankInfo,
     });
   })
 );
