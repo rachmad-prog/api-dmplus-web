@@ -50,11 +50,11 @@ router.post(
     const valid = await bcrypt.compare(password, admin.passwordHash);
     if (!valid) return res.status(401).json({ error: "Email atau password salah" });
 
-    const token = jwt.sign({ id: admin.id, email: admin.email, name: admin.name }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ id: admin.id, email: admin.email, name: admin.name, role: admin.role }, process.env.JWT_SECRET, {
       expiresIn: "12h",
     });
 
-    res.json({ token, admin: { id: admin.id, email: admin.email, name: admin.name } });
+    res.json({ token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } });
   })
 );
 

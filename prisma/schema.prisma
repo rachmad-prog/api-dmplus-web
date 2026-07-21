@@ -128,10 +128,16 @@ model SiteSetting {
   updatedAt           DateTime @updatedAt
 }
 
+enum AdminRole {
+  ADMIN  // akses penuh
+  DEMO   // hanya bisa melihat, tidak bisa edit/hapus
+}
+
 model AdminUser {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   name         String
-  createdAt    DateTime @default(now())
+  role         AdminRole @default(ADMIN)
+  createdAt    DateTime  @default(now())
 }

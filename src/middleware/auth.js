@@ -17,4 +17,14 @@ function requireAdmin(req, res, next) {
   }
 }
 
-module.exports = { requireAdmin };
+// Middleware untuk aksi yang butuh akses penuh (bukan demo)
+function requireFullAdmin(req, res, next) {
+  requireAdmin(req, res, () => {
+    if (req.admin.role === "DEMO") {
+      return res.status(403).json({ error: "Akun demo tidak dapat melakukan aksi ini. Hubungi admin." });
+    }
+    next();
+  });
+}
+
+module.exports = { requireAdmin, requireFullAdmin };

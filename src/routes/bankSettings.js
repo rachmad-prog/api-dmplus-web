@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const prisma = require("../prisma");
-const { requireAdmin } = require("../middleware/auth");
+const { requireAdmin, requireFullAdmin } = require("../middleware/auth");
 const asyncHandler = require("../middleware/asyncHandler");
 const { getBankInfo } = require("../services/bankInfo");
 
@@ -33,7 +33,7 @@ const updateSchema = z.object({
 // PUT /api/bank-settings (admin) — update no rekening dari dashboard admin
 router.put(
   "/",
-  requireAdmin,
+  requireFullAdmin,
   asyncHandler(async (req, res) => {
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Data tidak valid", details: parsed.error.flatten() });

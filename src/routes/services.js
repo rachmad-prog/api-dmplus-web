@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const prisma = require("../prisma");
-const { requireAdmin } = require("../middleware/auth");
+const { requireAdmin, requireFullAdmin } = require("../middleware/auth");
 const asyncHandler = require("../middleware/asyncHandler");
 
 const router = express.Router();
@@ -66,7 +66,7 @@ const createSchema = z.object({
 // POST /api/services (admin) — tambah paket layanan baru
 router.post(
   "/",
-  requireAdmin,
+  requireFullAdmin,
   asyncHandler(async (req, res) => {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Data tidak valid", details: parsed.error.flatten() });
@@ -101,7 +101,7 @@ const updateSchema = z.object({
 // PUT /api/services/:id (admin) — ubah data lengkap paket (harga, deskripsi, fitur, status, dll)
 router.put(
   "/:id",
-  requireAdmin,
+  requireFullAdmin,
   asyncHandler(async (req, res) => {
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Data tidak valid", details: parsed.error.flatten() });
@@ -126,7 +126,7 @@ router.put(
 // DELETE /api/services/:id (admin) — hapus paket layanan
 router.delete(
   "/:id",
-  requireAdmin,
+  requireFullAdmin,
   asyncHandler(async (req, res) => {
     try {
       await prisma.service.delete({ where: { id: req.params.id } });

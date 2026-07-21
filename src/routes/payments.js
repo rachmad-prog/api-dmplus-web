@@ -2,7 +2,7 @@ const express = require("express");
 const midtransClient = require("midtrans-client");
 const { z } = require("zod");
 const prisma = require("../prisma");
-const { requireAdmin } = require("../middleware/auth");
+const { requireAdmin, requireFullAdmin } = require("../middleware/auth");
 const { notifyPaymentConfirmed, notifyCustomerOrderCreated, notifyAdminNewOrder } = require("../services/mailer");
 const asyncHandler = require("../middleware/asyncHandler");
 const { getBankInfo } = require("../services/bankInfo");
@@ -178,7 +178,7 @@ router.post(
 // POST /api/payments/:paymentId/verify (admin) — konfirmasi manual bank transfer
 router.post(
   "/:paymentId/verify",
-  requireAdmin,
+  requireFullAdmin,
   asyncHandler(async (req, res) => {
     const payment = await prisma.payment.findUnique({
       where: { id: req.params.paymentId },

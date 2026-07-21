@@ -88,10 +88,25 @@ async function main() {
   if (!existingAdmin) {
     const passwordHash = await bcrypt.hash("Admin123!", 10);
     await prisma.adminUser.create({
-      data: { email: adminEmail, passwordHash, name: "Admin DM Plus" },
+      data: { email: adminEmail, passwordHash, name: "Admin DM Plus", role: "ADMIN" },
     });
     console.log(
       `✔ Admin dibuat -> email: ${adminEmail} / password: Admin123! (SEGERA GANTI!)`,
+    );
+  }
+
+  // ===== Akun Demo (view-only) =====
+  const demoEmail = "demo@dmplus.id";
+  const existingDemo = await prisma.adminUser.findUnique({
+    where: { email: demoEmail },
+  });
+  if (!existingDemo) {
+    const passwordHash = await bcrypt.hash("Demo1234!", 10);
+    await prisma.adminUser.create({
+      data: { email: demoEmail, passwordHash, name: "Demo User", role: "DEMO" },
+    });
+    console.log(
+      `✔ Akun demo dibuat -> email: ${demoEmail} / password: Demo1234!`,
     );
   }
 }

@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const prisma = require("../prisma");
-const { requireAdmin } = require("../middleware/auth");
+const { requireAdmin, requireFullAdmin } = require("../middleware/auth");
 const asyncHandler = require("../middleware/asyncHandler");
 const { getBankInfo } = require("../services/bankInfo");
 
