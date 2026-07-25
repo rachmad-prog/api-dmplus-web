@@ -29,6 +29,7 @@ const updateSchema = z.object({
   googleAdsLabel: z.string().optional().nullable(),
   tiktokPixelId: z.string().optional().nullable(),
   gtmContainerId: z.string().optional().nullable(),
+  customHeadCode: z.string().optional().nullable(),
 });
 
 // PUT /api/pixels (admin) — update ID pixel Meta/Google/TikTok dari dashboard admin

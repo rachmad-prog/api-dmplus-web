@@ -101,6 +101,7 @@ model PixelSetting {
   googleAdsLabel  String?
   tiktokPixelId   String?
   gtmContainerId  String?
+  customHeadCode  String?  // kode tag manual (mis. snippet gtag.js dari Google Ads) yang ditempel apa adanya ke <head>
   updatedAt       DateTime @updatedAt
 }
 
