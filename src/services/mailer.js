@@ -165,9 +165,35 @@ async function notifyPaymentConfirmed(order, payment, service) {
   }
 }
 
+// Dikirim ke customer saat order dibatalkan admin
+async function notifyOrderCancelled(order, service, reason) {
+  await sendMail({
+    to: order.customerEmail,
+    subject: `Order Dibatalkan — ${order.invoiceNumber}`,
+    html: `
+      <h2>Order kamu telah dibatalkan</h2>
+      <p>Invoice <b>${order.invoiceNumber}</b> · Paket <b>${service.name}</b></p>
+      <p>Status order ini sekarang <b style="color:#b3261e;">CANCELLED</b>.</p>
+      ${reason ? `<p><b>Keterangan:</b> ${reason}</p>` : ""}
+      <p>Kalau order ini sudah dibayar, tim kami akan menghubungi kamu terkait proses refund.</p>
+      <p style="font-size:13px;color:#888;margin-top:16px;">Ada pertanyaan? Balas email ini atau hubungi kami via WhatsApp.</p>
+    `,
+  });
+
+  const adminEmail = process.env.NOTIFY_ADMIN_EMAIL;
+  if (adminEmail) {
+    await sendMail({
+      to: adminEmail,
+      subject: `[Admin] Order dibatalkan — ${order.invoiceNumber}`,
+      html: `<p>Order ${order.invoiceNumber} (${service.name}) telah dibatalkan.${reason ? ` Alasan: ${reason}` : ""}</p>`,
+    });
+  }
+}
+
 module.exports = {
   sendMail,
   notifyAdminNewOrder,
   notifyCustomerOrderCreated,
   notifyPaymentConfirmed,
+  notifyOrderCancelled,
 };

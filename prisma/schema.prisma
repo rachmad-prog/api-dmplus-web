@@ -28,6 +28,7 @@ enum PaymentStatus {
   PAID
   FAILED
   EXPIRED
+  REFUNDED
 }
 
 model Service {
@@ -65,6 +66,10 @@ model Order {
   status          OrderStatus   @default(NEW)
   payments        Payment[]
 
+  cancelReason    String?
+  cancelledBy     String?
+  cancelledAt     DateTime?
+
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 }
@@ -89,6 +94,10 @@ model Payment {
   bankProofUrl    String?
   verifiedBy      String?
   verifiedAt      DateTime?
+
+  // Refund (dipicu saat order PAID dibatalkan admin)
+  refundedAt      DateTime?
+  refundRaw       Json?
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

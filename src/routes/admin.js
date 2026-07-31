@@ -6,6 +6,8 @@ const prisma = require("../prisma");
 const { requireAdmin } = require("../middleware/auth");
 const asyncHandler = require("../middleware/asyncHandler");
 const { generateCaptcha, verifyCaptcha } = require("../services/captcha");
+const { loginLimiter } = require("../middleware/rateLimit");
+const { getAuthCookieOptions, AUTH_COOKIE_NAME } = require("../utils/authCookie");
 
 const router = express.Router();
 
@@ -33,6 +35,7 @@ const loginSchema = z.object({
 // POST /api/admin/login
 router.post(
   "/login",
+  loginLimiter,
   asyncHandler(async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Data tidak valid" });
@@ -54,9 +57,19 @@ router.post(
       expiresIn: "12h",
     });
 
-    res.json({ token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } });
+    // Token disimpan sebagai httpOnly cookie — TIDAK dikembalikan di body JSON,
+    // supaya tidak bisa dibaca lewat JavaScript di browser (mitigasi XSS token theft).
+    res.cookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
+
+    res.json({ admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } });
   })
 );
+
+// POST /api/admin/logout — hapus cookie token di sisi browser
+router.post("/logout", (req, res) => {
+  res.clearCookie(AUTH_COOKIE_NAME, getAuthCookieOptions());
+  res.json({ ok: true });
+});
 
 // GET /api/admin/me — verifikasi token & ambil profil admin yang login
 router.get("/me", requireAdmin, (req, res) => {
@@ -191,3 +204,12 @@ router.post(
     res.json({ ok: true });
   })
 );
+
+// GET /api/admin/sentry-test — admin sengaja memicu error buat mastiin Sentry
+// beneran nangkep & ngirim event. Dibatasi requireFullAdmin biar gak bisa
+// dipakai orang luar buat spam event ke quota Sentry.
+router.get("/sentry-test", requireFullAdmin, () => {
+  throw new Error("Test error dari /api/admin/sentry-test — abaikan kalau ini sengaja dipicu buat cek Sentry");
+});
+
+module.exports = router;

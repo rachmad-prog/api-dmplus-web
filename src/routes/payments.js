@@ -1,4 +1,5 @@
 const express = require("express");
+const multer = require("multer");
 const midtransClient = require("midtrans-client");
 const { z } = require("zod");
 const prisma = require("../prisma");
@@ -6,8 +7,24 @@ const { requireAdmin, requireFullAdmin } = require("../middleware/auth");
 const { notifyPaymentConfirmed, notifyCustomerOrderCreated, notifyAdminNewOrder } = require("../services/mailer");
 const asyncHandler = require("../middleware/asyncHandler");
 const { getBankInfo } = require("../services/bankInfo");
+const { uploadBuffer, isConfigured: isCloudinaryConfigured } = require("../services/cloudinary");
+const { paymentCreateLimiter, proofUploadLimiter } = require("../middleware/rateLimit");
 
 const router = express.Router();
+
+// Upload bukti transfer: simpan di memori dulu (bukan disk — serverless tidak
+// punya disk persisten), lalu diteruskan ke Cloudinary. Dibatasi 5MB & hanya
+// gambar, karena bukti transfer selalu berupa screenshot/foto struk.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!/^image\/(jpeg|jpg|png|webp)$/.test(file.mimetype)) {
+      return cb(new Error("File harus berupa gambar (JPG, PNG, atau WebP)"));
+    }
+    cb(null, true);
+  },
+});
 
 const snap = new midtransClient.Snap({
   isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
@@ -30,6 +47,7 @@ const createPaymentSchema = z.object({
 // POST /api/payments — mulai pembayaran full 100%, kirim notif email
 router.post(
   "/",
+  paymentCreateLimiter,
   asyncHandler(async (req, res) => {
     const parsed = createPaymentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -145,6 +163,14 @@ router.post(
       });
       if (!payment) return res.status(404).json({ error: "Payment tidak ditemukan" });
 
+      // Idempotency guard: Midtrans bisa mengirim notifikasi yang sama lebih dari
+      // sekali (retry, race condition, dsb). Kalau payment ini sudah PAID, jangan
+      // proses ulang — cukup balas 200 supaya Midtrans berhenti retry, tanpa
+      // update order lagi atau kirim email konfirmasi dobel ke customer.
+      if (payment.status === "PAID") {
+        return res.status(200).json({ received: true, note: "Payment sudah PAID sebelumnya, notifikasi diabaikan" });
+      }
+
       let newStatus = payment.status;
       if (transaction_status === "capture") {
         newStatus = fraud_status === "accept" ? "PAID" : "PENDING";
@@ -188,6 +214,9 @@ router.post(
     if (payment.method !== "BANK_TRANSFER") {
       return res.status(400).json({ error: "Hanya pembayaran bank transfer yang perlu verifikasi manual" });
     }
+    if (payment.status === "PAID") {
+      return res.status(400).json({ error: "Pembayaran ini sudah diverifikasi sebelumnya" });
+    }
 
     const updatedPayment = await prisma.payment.update({
       where: { id: payment.id },
@@ -203,5 +232,58 @@ router.post(
     res.json({ payment: updatedPayment, order: updatedOrder });
   })
 );
+
+// POST /api/payments/:paymentId/proof — customer upload bukti transfer manual.
+// Publik (tidak butuh login), karena dipanggil dari halaman status order oleh
+// customer. Diproteksi lewat rate limit + validasi tipe/ukuran file di multer.
+router.post(
+  "/:paymentId/proof",
+  proofUploadLimiter,
+  upload.single("proof"),
+  asyncHandler(async (req, res) => {
+    if (!isCloudinaryConfigured()) {
+      return res.status(503).json({ error: "Upload bukti transfer belum dikonfigurasi di server" });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: "File bukti transfer wajib diupload" });
+    }
+
+    const payment = await prisma.payment.findUnique({ where: { id: req.params.paymentId } });
+    if (!payment) return res.status(404).json({ error: "Payment tidak ditemukan" });
+    if (payment.method !== "BANK_TRANSFER") {
+      return res.status(400).json({ error: "Upload bukti transfer hanya untuk metode Transfer Bank Manual" });
+    }
+    if (payment.status === "PAID") {
+      return res.status(400).json({ error: "Pembayaran ini sudah diverifikasi, tidak perlu upload ulang" });
+    }
+
+    let result;
+    try {
+      result = await uploadBuffer(req.file.buffer, {
+        folder: "dmplus/bukti-transfer",
+        publicIdPrefix: payment.id,
+      });
+    } catch (err) {
+      console.error("[cloudinary] upload gagal:", err.message);
+      return res.status(502).json({ error: "Gagal upload bukti transfer, coba lagi" });
+    }
+
+    const updatedPayment = await prisma.payment.update({
+      where: { id: payment.id },
+      data: { bankProofUrl: result.secure_url },
+    });
+
+    res.json({ payment: updatedPayment });
+  })
+);
+
+// Tangani error dari multer (misal file kebesaran / tipe salah) supaya balasannya
+// tetap JSON rapi, bukan HTML default Express.
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err.message?.includes("harus berupa gambar")) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
+});
 
 module.exports = router;

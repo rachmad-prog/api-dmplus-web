@@ -1,6 +1,12 @@
 require("dotenv").config();
+
+// Sentry HARUS di-require sebelum express & modul lain (lihat komentar di
+// instrument.js) supaya auto-instrumentation-nya lengkap.
+const { Sentry, isConfigured: isSentryConfigured } = require("./instrument");
+
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const morgan = require("morgan");
 
@@ -15,7 +21,20 @@ const siteSettingsRoutes = require("./routes/siteSettings");
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || "*" }));
+
+// PENTING: CORS harus origin spesifik (bukan "*") + credentials:true, karena
+// token admin sekarang dikirim lewat httpOnly cookie cross-site. Browser
+// menolak kombinasi Access-Control-Allow-Origin:"*" dengan credentials:true.
+if (!process.env.CLIENT_URL) {
+  console.warn("[cors] CLIENT_URL belum di-set — cookie admin (httpOnly) tidak akan berfungsi cross-site.");
+}
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL,
+    credentials: true,
+  })
+);
+app.use(cookieParser());
 app.use(morgan("dev"));
 app.use(express.json());
 
@@ -29,6 +48,13 @@ app.use("/api/pixels", pixelsRoutes);
 app.use("/api/bank-settings", bankSettingsRoutes);
 app.use("/api/site-settings", siteSettingsRoutes);
 
+// Sentry error handler HARUS dipasang setelah semua route, tapi sebelum
+// error handler generik di bawah ini — supaya error yang lolos ke sana
+// sudah tercatat di Sentry duluan.
+if (isSentryConfigured()) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
 // Error handler terakhir
 app.use((err, req, res, next) => {
   console.error(err);
@@ -41,9 +67,11 @@ app.use((err, req, res, next) => {
 // berguna untuk mode lokal / server tradisional.)
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection]", reason);
+  if (isSentryConfigured()) Sentry.captureException(reason);
 });
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException]", err);
+  if (isSentryConfigured()) Sentry.captureException(err);
 });
 
 module.exports = app;
