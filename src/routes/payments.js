@@ -9,6 +9,7 @@ const asyncHandler = require("../middleware/asyncHandler");
 const { getBankInfo } = require("../services/bankInfo");
 const { uploadBuffer, isConfigured: isCloudinaryConfigured } = require("../services/cloudinary");
 const { paymentCreateLimiter, proofUploadLimiter } = require("../middleware/rateLimit");
+const { createCheckoutPayment, verifyNotificationSignature } = require("../services/doku");
 
 const router = express.Router();
 
@@ -40,7 +41,7 @@ const coreApi = new midtransClient.CoreApi({
 
 const createPaymentSchema = z.object({
   orderId: z.string(),
-  method: z.enum(["BANK_TRANSFER", "MIDTRANS"]),
+  method: z.enum(["BANK_TRANSFER", "MIDTRANS", "DOKU"]),
   bankSenderName: z.string().optional(),
 });
 
@@ -66,11 +67,15 @@ router.post(
     const siteSetting = await prisma.siteSetting.findFirst();
     const bankTransferEnabled = siteSetting?.enableBankTransfer ?? true;
     const midtransEnabled = siteSetting?.enableMidtrans ?? true;
+    const dokuEnabled = siteSetting?.enableDoku ?? true;
     if (method === "BANK_TRANSFER" && !bankTransferEnabled) {
       return res.status(400).json({ error: "Metode Transfer Bank Manual sedang tidak aktif" });
     }
     if (method === "MIDTRANS" && !midtransEnabled) {
       return res.status(400).json({ error: "Metode pembayaran Midtrans sedang tidak aktif" });
+    }
+    if (method === "DOKU" && !dokuEnabled) {
+      return res.status(400).json({ error: "Metode pembayaran Doku sedang tidak aktif" });
     }
 
     const amount = order.totalAmount;
@@ -94,6 +99,56 @@ router.post(
         bankInfo,
         instructions: "Transfer sesuai nominal, lalu tunggu konfirmasi admin (maks 1x24 jam kerja). Simpan bukti transfer.",
       });
+    }
+
+    if (method === "DOKU") {
+      const dokuInvoiceNumber = `${order.invoiceNumber}-${Date.now()}`;
+      const statusUrl = `${process.env.CLIENT_URL}/status/${order.invoiceNumber}`;
+
+      let dokuResult;
+      try {
+        dokuResult = await createCheckoutPayment({
+          invoiceNumber: dokuInvoiceNumber,
+          amount,
+          customer: {
+            name: order.customerName,
+            email: order.customerEmail,
+            phone: order.customerPhone,
+          },
+          items: [
+            {
+              name: order.service.name,
+              price: amount,
+              quantity: 1,
+            },
+          ],
+          callbackUrl: statusUrl,
+          failedUrl: statusUrl,
+        });
+      } catch (err) {
+        console.error("[doku] createCheckoutPayment error:", err.message);
+        return res.status(502).json({ error: "Gagal membuat transaksi Doku", detail: err.message });
+      }
+
+      const payment = await prisma.payment.create({
+        data: {
+          orderId: order.id,
+          method: "DOKU",
+          amount,
+          status: "PENDING",
+          dokuInvoiceNumber,
+          dokuPaymentUrl: dokuResult.paymentUrl,
+          dokuRaw: dokuResult.raw,
+        },
+      });
+      await prisma.order.update({ where: { id: order.id }, data: { status: "PENDING" } });
+
+      notifyAdminNewOrder(order, order.service).catch(() => {});
+      getBankInfo()
+        .then((bankInfo) => notifyCustomerOrderCreated(order, order.service, payment, bankInfo))
+        .catch(() => {});
+
+      return res.status(201).json({ payment, redirectUrl: dokuResult.paymentUrl });
     }
 
     // method === MIDTRANS
@@ -196,6 +251,67 @@ router.post(
       res.status(200).json({ received: true });
     } catch (err) {
       console.error("[midtrans webhook] error:", err.message);
+      res.status(500).json({ error: "Webhook error" });
+    }
+  })
+);
+
+// POST /api/payments/doku/notification — HTTP Notification dari Doku saat status
+// pembayaran berubah. URL ini harus didaftarkan sebagai "Notification URL" di
+// Doku Back Office (Settings > Checkout > Notification URL):
+//   {BACKEND_URL}/api/payments/doku/notification
+router.post(
+  "/doku/notification",
+  asyncHandler(async (req, res) => {
+    try {
+      if (!verifyNotificationSignature(req)) {
+        console.error("[doku webhook] signature tidak valid");
+        return res.status(401).json({ error: "Signature tidak valid" });
+      }
+
+      const dokuInvoiceNumber = req.body?.order?.invoice_number;
+      const transactionStatus = req.body?.transaction?.status; // SUCCESS | FAILED | PENDING | EXPIRED
+
+      if (!dokuInvoiceNumber) {
+        return res.status(400).json({ error: "order.invoice_number tidak ditemukan pada notifikasi" });
+      }
+
+      const payment = await prisma.payment.findUnique({
+        where: { dokuInvoiceNumber },
+        include: { order: { include: { service: true } } },
+      });
+      if (!payment) return res.status(404).json({ error: "Payment tidak ditemukan" });
+
+      // Idempotency guard, sama seperti webhook Midtrans.
+      if (payment.status === "PAID") {
+        return res.status(200).json({ received: true, note: "Payment sudah PAID sebelumnya, notifikasi diabaikan" });
+      }
+
+      let newStatus = payment.status;
+      if (transactionStatus === "SUCCESS") {
+        newStatus = "PAID";
+      } else if (transactionStatus === "FAILED") {
+        newStatus = "FAILED";
+      } else if (transactionStatus === "EXPIRED") {
+        newStatus = "EXPIRED";
+      }
+
+      const updatedPayment = await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: newStatus, dokuRaw: req.body },
+      });
+
+      if (newStatus === "PAID") {
+        const updatedOrder = await prisma.order.update({
+          where: { id: payment.orderId },
+          data: { status: "PAID" },
+        });
+        notifyPaymentConfirmed(updatedOrder, updatedPayment, payment.order.service).catch(() => {});
+      }
+
+      res.status(200).json({ received: true });
+    } catch (err) {
+      console.error("[doku webhook] error:", err.message);
       res.status(500).json({ error: "Webhook error" });
     }
   })

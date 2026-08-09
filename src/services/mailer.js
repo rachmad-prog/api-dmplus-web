@@ -67,6 +67,7 @@ async function notifyCustomerOrderCreated(order, service, payment, bankInfo) {
   bankInfo = bankInfo || { bankName: "-", accountNumber: "-", accountHolder: "-" };
 
   const isMidtrans = payment?.method === "MIDTRANS";
+  const isDoku = payment?.method === "DOKU";
 
   const paymentSection = isMidtrans
     ? `
@@ -80,6 +81,20 @@ async function notifyCustomerOrderCreated(order, service, payment, bankInfo) {
       <p style="font-size:13px;color:#888;margin-top:8px;">
         Link di atas berlaku untuk pembayaran melalui Virtual Account, E-wallet (GoPay/OVO/ShopeePay/DANA),
         atau Kartu Kredit/Debit sesuai pilihanmu di halaman Midtrans.
+      </p>
+    `
+    : isDoku
+    ? `
+      <p><b>Cara bayar ${formatRupiah(order.totalAmount)}:</b></p>
+      <p>
+        <a href="${payment.dokuPaymentUrl}"
+           style="display:inline-block;background:#1a3c34;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">
+          💳 Bayar Sekarang via Doku (VA / E-wallet / Kartu)
+        </a>
+      </p>
+      <p style="font-size:13px;color:#888;margin-top:8px;">
+        Link di atas berlaku untuk pembayaran melalui Virtual Account, E-wallet, atau Kartu Kredit/Debit
+        sesuai pilihanmu di halaman Doku.
       </p>
     `
     : `

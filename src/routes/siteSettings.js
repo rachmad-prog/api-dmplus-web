@@ -30,10 +30,11 @@ const updateSchema = z.object({
   ctwaMessage: z.string().optional().nullable(),
   enableBankTransfer: z.boolean().optional(),
   enableMidtrans: z.boolean().optional(),
+  enableDoku: z.boolean().optional(),
 });
 
 // PUT /api/site-settings (admin) — ubah mode pricing card & kontrol metode
-// pembayaran (transfer manual / midtrans) dari dashboard admin
+// pembayaran (transfer manual / midtrans / doku) dari dashboard admin
 router.put(
   "/",
   requireFullAdmin,
@@ -43,13 +44,14 @@ router.put(
 
     const row = await getOrCreate();
 
-    // Cegah kedua metode pembayaran dinonaktifkan sekaligus — minimal
+    // Cegah semua metode pembayaran dinonaktifkan sekaligus — minimal
     // satu metode harus tetap aktif agar customer masih bisa checkout.
     const nextBankTransfer = parsed.data.enableBankTransfer ?? row.enableBankTransfer;
     const nextMidtrans = parsed.data.enableMidtrans ?? row.enableMidtrans;
-    if (!nextBankTransfer && !nextMidtrans) {
+    const nextDoku = parsed.data.enableDoku ?? row.enableDoku;
+    if (!nextBankTransfer && !nextMidtrans && !nextDoku) {
       return res.status(400).json({
-        error: "Minimal satu metode pembayaran (Transfer Bank Manual atau Midtrans) harus tetap aktif",
+        error: "Minimal satu metode pembayaran (Transfer Bank Manual, Midtrans, atau Doku) harus tetap aktif",
       });
     }
 

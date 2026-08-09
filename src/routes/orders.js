@@ -6,7 +6,8 @@ const { requireAdmin, requireFullAdmin } = require("../middleware/auth");
 const asyncHandler = require("../middleware/asyncHandler");
 const { getBankInfo } = require("../services/bankInfo");
 const { orderCreateLimiter } = require("../middleware/rateLimit");
-const { notifyOrderCancelled } = require("../services/mailer");
+const { notifyOrderCancelled, notifyPaymentConfirmed } = require("../services/mailer");
+const { checkTransactionStatus: checkDokuStatus, isConfigured: isDokuConfigured } = require("../services/doku");
 
 const router = express.Router();
 
@@ -22,11 +23,11 @@ const cancelOrderSchema = z.object({
 
 const createOrderSchema = z.object({
   serviceSlug: z.string(),
-  customerName: z.string().min(2),
-  customerEmail: z.string().email(),
-  customerPhone: z.string().min(8),
-  businessName: z.string().optional(),
-  notes: z.string().optional(),
+  customerName: z.string().trim().min(2, "Nama lengkap wajib diisi (min. 2 karakter)"),
+  customerEmail: z.string().trim().email("Format email tidak valid"),
+  customerPhone: z.string().trim().min(8, "No. WhatsApp wajib diisi (min. 8 karakter)"),
+  businessName: z.string().trim().min(1, "Nama bisnis wajib diisi"),
+  notes: z.string().trim().min(1, "Catatan wajib diisi"),
 });
 
 function generateInvoiceNumber() {
@@ -45,7 +46,11 @@ router.post(
   asyncHandler(async (req, res) => {
     const parsed = createOrderSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Data tidak valid", details: parsed.error.flatten() });
+      const firstIssue = parsed.error.issues[0];
+      return res.status(400).json({
+        error: firstIssue?.message || "Data tidak valid",
+        details: parsed.error.flatten(),
+      });
     }
     const data = parsed.data;
 
@@ -77,15 +82,81 @@ router.post(
   })
 );
 
+// Sinkronisasi aktif: setiap payment MIDTRANS/DOKU yang masih PENDING dicek
+// langsung ke API gateway (bukan pasif menunggu webhook). Ini bikin status
+// tetap ter-update walau Notification URL belum/tidak sempat dikonfigurasi
+// di dashboard Midtrans/Doku — jalan otomatis baik sandbox maupun production.
+// Kegagalan cek (network/gateway error) sengaja di-diamkan supaya halaman
+// status order tetap bisa tampil dari data DB yang ada.
+async function syncPendingPayments(order) {
+  let anyPaid = false;
+
+  for (const payment of order.payments) {
+    if (payment.status !== "PENDING") continue;
+
+    try {
+      if (payment.method === "MIDTRANS" && payment.midtransOrderId) {
+        const statusResp = await coreApi.transaction.status(payment.midtransOrderId);
+        const { transaction_status, fraud_status } = statusResp;
+        let newStatus = payment.status;
+        if (transaction_status === "capture") {
+          newStatus = fraud_status === "accept" ? "PAID" : "PENDING";
+        } else if (transaction_status === "settlement") {
+          newStatus = "PAID";
+        } else if (["cancel", "deny", "expire"].includes(transaction_status)) {
+          newStatus = transaction_status === "expire" ? "EXPIRED" : "FAILED";
+        }
+        if (newStatus !== payment.status) {
+          await prisma.payment.update({ where: { id: payment.id }, data: { status: newStatus, midtransRaw: statusResp } });
+          if (newStatus === "PAID") anyPaid = true;
+        }
+      } else if (payment.method === "DOKU" && payment.dokuInvoiceNumber && isDokuConfigured()) {
+        const statusResp = await checkDokuStatus(payment.dokuInvoiceNumber);
+        let newStatus = payment.status;
+        if (statusResp.transactionStatus === "SUCCESS") newStatus = "PAID";
+        else if (statusResp.transactionStatus === "FAILED") newStatus = "FAILED";
+        else if (statusResp.transactionStatus === "EXPIRED" || statusResp.orderStatus === "ORDER_EXPIRED") newStatus = "EXPIRED";
+        if (newStatus !== payment.status) {
+          await prisma.payment.update({ where: { id: payment.id }, data: { status: newStatus, dokuRaw: statusResp.raw } });
+          if (newStatus === "PAID") anyPaid = true;
+        }
+      }
+    } catch (err) {
+      if (!err.notFound) console.error(`[sync ${payment.method}] gagal cek status:`, err.message);
+    }
+  }
+
+  if (anyPaid && order.status !== "PAID") {
+    const updatedOrder = await prisma.order.update({
+      where: { id: order.id },
+      data: { status: "PAID" },
+      include: { service: true, payments: true },
+    });
+    const paidPayment = updatedOrder.payments.find((p) => p.status === "PAID");
+    if (paidPayment) notifyPaymentConfirmed(updatedOrder, paidPayment, updatedOrder.service).catch(() => {});
+    return updatedOrder;
+  }
+
+  if (anyPaid) {
+    // order sudah PAID tapi payment record baru saja diupdate — reload biar payments-nya fresh
+    return prisma.order.findUnique({ where: { id: order.id }, include: { service: true, payments: true } });
+  }
+
+  return order;
+}
+
 // GET /api/orders/:invoiceNumber — cek status order
 router.get(
   "/:invoiceNumber",
   asyncHandler(async (req, res) => {
-    const order = await prisma.order.findUnique({
+    let order = await prisma.order.findUnique({
       where: { invoiceNumber: req.params.invoiceNumber },
       include: { service: true, payments: true },
     });
     if (!order) return res.status(404).json({ error: "Order tidak ditemukan" });
+
+    order = await syncPendingPayments(order);
+
     res.json(order);
   })
 );
@@ -176,6 +247,10 @@ router.post(
         }
       } else if (payment.method === "BANK_TRANSFER") {
         refundNotes.push(`Payment ${payment.id}: transfer bank manual, refund dana perlu dilakukan manual ke customer.`);
+      } else if (payment.method === "DOKU") {
+        // Refund otomatis via API Doku tidak diimplementasikan di sini —
+        // ajukan refund manual lewat Doku Back Office atau hubungi Doku Support.
+        refundNotes.push(`Payment ${payment.id}: pembayaran via Doku, refund dana perlu diajukan manual lewat Doku Back Office.`);
       }
     }
 

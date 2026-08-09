@@ -21,6 +21,7 @@ enum OrderStatus {
 enum PaymentMethod {
   BANK_TRANSFER   // manual transfer ke rekening, diverifikasi admin
   MIDTRANS        // via Midtrans Snap (VA, e-wallet, kartu, dll)
+  DOKU            // via Doku Checkout (VA, e-wallet, kartu, dll)
 }
 
 enum PaymentStatus {
@@ -89,6 +90,11 @@ model Payment {
   snapRedirectUrl String?
   midtransRaw     Json?
 
+  // Doku
+  dokuInvoiceNumber String?      @unique
+  dokuPaymentUrl    String?
+  dokuRaw           Json?
+
   // Bank transfer manual
   bankSenderName  String?
   bankProofUrl    String?
@@ -134,6 +140,7 @@ model SiteSetting {
   // Minimal salah satu harus tetap aktif (divalidasi di route).
   enableBankTransfer  Boolean  @default(true)  // Transfer Bank Manual
   enableMidtrans      Boolean  @default(true)  // Bayar Otomatis via Midtrans (VA/E-wallet/Kartu)
+  enableDoku          Boolean  @default(true)  // Bayar Otomatis via Doku Checkout (VA/E-wallet/Kartu)
 
   updatedAt           DateTime @updatedAt
 }

@@ -36,7 +36,15 @@ app.use(
 );
 app.use(cookieParser());
 app.use(morgan("dev"));
-app.use(express.json());
+// simpan raw body (dipakai untuk verifikasi Signature notifikasi Doku, yang
+// dihitung dari hash body mentah — bukan dari objek JSON yang sudah di-parse)
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString("utf8");
+    },
+  })
+);
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
