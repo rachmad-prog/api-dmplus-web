@@ -33,6 +33,18 @@ async function createCheckoutPayment({ invoiceNumber, amount, customer, items, c
     throw new Error("Doku belum dikonfigurasi (DOKU_CLIENT_ID / DOKU_SECRET_KEY kosong di .env)");
   }
 
+  // BACKEND_URL harus menunjuk ke domain backend dmplus-web sendiri (bukan
+  // CLIENT_URL yang merupakan domain frontend). Dipakai untuk
+  // override_notification_url di bawah.
+  const backendUrl = process.env.BACKEND_URL;
+  if (!backendUrl) {
+    console.warn(
+      "[doku] BACKEND_URL belum di-set — notifikasi DOKU akan mengandalkan " +
+        "Notification URL statis di DOKU Back Office, yang bisa saja diarahkan " +
+        "ke project lain kalau 1 API key dipakai untuk beberapa website."
+    );
+  }
+
   const body = {
     order: {
       invoice_number: invoiceNumber,
@@ -52,6 +64,16 @@ async function createCheckoutPayment({ invoiceNumber, amount, customer, items, c
       phone: customer.phone,
       country: "ID",
     },
+    // WAJIB kalau 1 API key DOKU dipakai untuk lebih dari satu website:
+    // memaksa DOKU mengirim notifikasi transaksi ini ke webhook dmplus-web
+    // sendiri, terlepas dari Notification URL statis apa pun yang di-set di
+    // DOKU Back Office (yang cuma bisa diisi 1 URL untuk seluruh akun).
+    // Pola yang sama dipakai project zilapage yang berbagi API key ini.
+    ...(backendUrl && {
+      additional_info: {
+        override_notification_url: `${backendUrl}${NOTIFICATION_PATH}`,
+      },
+    }),
   };
 
   const rawBody = JSON.stringify(body);
