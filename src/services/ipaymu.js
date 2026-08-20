@@ -64,6 +64,12 @@ async function createRedirectPayment({ referenceId, items, customer, returnUrl, 
     price: items.map((item) => String(item.price)),
     returnUrl,
     cancelUrl,
+    // Masa berlaku pembayaran (24 jam) — field ini disebut wajib di sebagian
+    // dokumentasi resmi iPaymu Redirect Payment v2. Tanpa ini, iPaymu bisa
+    // menerima transaksi tapi gagal ("UNCAUGHT_ERROR") saat mencoba generate
+    // VA di step berikutnya (setelah customer pilih bank).
+    expired: 24,
+    expiredType: "hours",
     ...(backendUrl && { notifyUrl: `${backendUrl}${NOTIFICATION_PATH}` }),
     buyerName: customer.name,
     buyerEmail: customer.email,
