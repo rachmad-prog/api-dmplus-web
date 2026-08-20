@@ -10,6 +10,10 @@ const { getBankInfo } = require("../services/bankInfo");
 const { uploadBuffer, isConfigured: isCloudinaryConfigured } = require("../services/cloudinary");
 const { paymentCreateLimiter, proofUploadLimiter } = require("../middleware/rateLimit");
 const { createCheckoutPayment, verifyNotificationSignature } = require("../services/doku");
+const {
+  createRedirectPayment,
+  verifyNotificationSignature: verifyIpaymuNotificationSignature,
+} = require("../services/ipaymu");
 
 const router = express.Router();
 
@@ -41,7 +45,7 @@ const coreApi = new midtransClient.CoreApi({
 
 const createPaymentSchema = z.object({
   orderId: z.string(),
-  method: z.enum(["BANK_TRANSFER", "MIDTRANS", "DOKU"]),
+  method: z.enum(["BANK_TRANSFER", "MIDTRANS", "DOKU", "IPAYMU"]),
   bankSenderName: z.string().optional(),
 });
 
@@ -68,6 +72,7 @@ router.post(
     const bankTransferEnabled = siteSetting?.enableBankTransfer ?? true;
     const midtransEnabled = siteSetting?.enableMidtrans ?? true;
     const dokuEnabled = siteSetting?.enableDoku ?? true;
+    const ipaymuEnabled = siteSetting?.enableIpaymu ?? true;
     if (method === "BANK_TRANSFER" && !bankTransferEnabled) {
       return res.status(400).json({ error: "Metode Transfer Bank Manual sedang tidak aktif" });
     }
@@ -76,6 +81,9 @@ router.post(
     }
     if (method === "DOKU" && !dokuEnabled) {
       return res.status(400).json({ error: "Metode pembayaran Doku sedang tidak aktif" });
+    }
+    if (method === "IPAYMU" && !ipaymuEnabled) {
+      return res.status(400).json({ error: "Metode pembayaran iPaymu sedang tidak aktif" });
     }
 
     const amount = order.totalAmount;
@@ -149,6 +157,56 @@ router.post(
         .catch(() => {});
 
       return res.status(201).json({ payment, redirectUrl: dokuResult.paymentUrl });
+    }
+
+    if (method === "IPAYMU") {
+      const ipaymuReferenceId = `${order.invoiceNumber}-${Date.now()}`;
+      const statusUrl = `${process.env.CLIENT_URL}/status/${order.invoiceNumber}`;
+
+      let ipaymuResult;
+      try {
+        ipaymuResult = await createRedirectPayment({
+          referenceId: ipaymuReferenceId,
+          customer: {
+            name: order.customerName,
+            email: order.customerEmail,
+            phone: order.customerPhone,
+          },
+          items: [
+            {
+              name: order.service.name,
+              price: amount,
+              quantity: 1,
+            },
+          ],
+          returnUrl: statusUrl,
+          cancelUrl: statusUrl,
+        });
+      } catch (err) {
+        console.error("[ipaymu] createRedirectPayment error:", err.message);
+        return res.status(502).json({ error: "Gagal membuat transaksi iPaymu", detail: err.message });
+      }
+
+      const payment = await prisma.payment.create({
+        data: {
+          orderId: order.id,
+          method: "IPAYMU",
+          amount,
+          status: "PENDING",
+          ipaymuReferenceId,
+          ipaymuSessionId: ipaymuResult.sessionId,
+          ipaymuPaymentUrl: ipaymuResult.paymentUrl,
+          ipaymuRaw: ipaymuResult.raw,
+        },
+      });
+      await prisma.order.update({ where: { id: order.id }, data: { status: "PENDING" } });
+
+      notifyAdminNewOrder(order, order.service).catch(() => {});
+      getBankInfo()
+        .then((bankInfo) => notifyCustomerOrderCreated(order, order.service, payment, bankInfo))
+        .catch(() => {});
+
+      return res.status(201).json({ payment, redirectUrl: ipaymuResult.paymentUrl });
     }
 
     // method === MIDTRANS
@@ -312,6 +370,69 @@ router.post(
       res.status(200).json({ received: true });
     } catch (err) {
       console.error("[doku webhook] error:", err.message);
+      res.status(500).json({ error: "Webhook error" });
+    }
+  })
+);
+
+// POST /api/payments/ipaymu/notification — callback dari iPaymu saat status
+// pembayaran berubah. URL ini dikirim sebagai "notifyUrl" di setiap request
+// pembuatan transaksi (lihat services/ipaymu.js), jadi tidak perlu didaftarkan
+// manual di dashboard iPaymu. Bisa diterima dalam format x-www-form-urlencoded
+// (default iPaymu) maupun application/json — keduanya sudah di-parse oleh
+// middleware di app.js.
+router.post(
+  "/ipaymu/notification",
+  asyncHandler(async (req, res) => {
+    try {
+      if (!verifyIpaymuNotificationSignature(req)) {
+        console.error("[ipaymu webhook] signature tidak valid");
+        return res.status(401).json({ error: "Signature tidak valid" });
+      }
+
+      const ipaymuReferenceId = req.body?.reference_id || req.body?.referenceId;
+      const statusCode = String(req.body?.status_code ?? ""); // "1" Sukses | "0" Pending | "-2" Expired
+
+      if (!ipaymuReferenceId) {
+        return res.status(400).json({ error: "reference_id tidak ditemukan pada notifikasi" });
+      }
+
+      const payment = await prisma.payment.findUnique({
+        where: { ipaymuReferenceId },
+        include: { order: { include: { service: true } } },
+      });
+      if (!payment) return res.status(404).json({ error: "Payment tidak ditemukan" });
+
+      // Idempotency guard, sama seperti webhook Midtrans & Doku.
+      if (payment.status === "PAID") {
+        return res.status(200).json({ received: true, note: "Payment sudah PAID sebelumnya, notifikasi diabaikan" });
+      }
+
+      let newStatus = payment.status;
+      if (statusCode === "1") {
+        newStatus = "PAID";
+      } else if (statusCode === "-2") {
+        newStatus = "EXPIRED";
+      } else if (statusCode === "-1") {
+        newStatus = "FAILED";
+      }
+
+      const updatedPayment = await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: newStatus, ipaymuRaw: req.body },
+      });
+
+      if (newStatus === "PAID") {
+        const updatedOrder = await prisma.order.update({
+          where: { id: payment.orderId },
+          data: { status: "PAID" },
+        });
+        notifyPaymentConfirmed(updatedOrder, updatedPayment, payment.order.service).catch(() => {});
+      }
+
+      res.status(200).json({ received: true });
+    } catch (err) {
+      console.error("[ipaymu webhook] error:", err.message);
       res.status(500).json({ error: "Webhook error" });
     }
   })

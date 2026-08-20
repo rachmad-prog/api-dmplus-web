@@ -8,6 +8,7 @@ const { getBankInfo } = require("../services/bankInfo");
 const { orderCreateLimiter } = require("../middleware/rateLimit");
 const { notifyOrderCancelled, notifyPaymentConfirmed } = require("../services/mailer");
 const { checkTransactionStatus: checkDokuStatus, isConfigured: isDokuConfigured } = require("../services/doku");
+const { checkTransactionStatus: checkIpaymuStatus, isConfigured: isIpaymuConfigured } = require("../services/ipaymu");
 
 const router = express.Router();
 
@@ -82,12 +83,22 @@ router.post(
   })
 );
 
-// Sinkronisasi aktif: setiap payment MIDTRANS/DOKU yang masih PENDING dicek
-// langsung ke API gateway (bukan pasif menunggu webhook). Ini bikin status
-// tetap ter-update walau Notification URL belum/tidak sempat dikonfigurasi
-// di dashboard Midtrans/Doku — jalan otomatis baik sandbox maupun production.
+// Sinkronisasi aktif: setiap payment MIDTRANS/DOKU/IPAYMU yang masih PENDING
+// dicek langsung ke API gateway (bukan pasif menunggu webhook). Ini bikin
+// status tetap ter-update walau Notification URL/notifyUrl belum/tidak sempat
+// terkirim — jalan otomatis baik sandbox maupun production.
 // Kegagalan cek (network/gateway error) sengaja di-diamkan supaya halaman
 // status order tetap bisa tampil dari data DB yang ada.
+//
+// Catatan soal IPAYMU: skema response endpoint "Check Transaction" resmi
+// iPaymu v2 tidak punya dokumentasi yang seragam/terverifikasi (berbeda-beda
+// antar sumber, sebagian masih API v1 lama). checkTransactionStatus() di
+// services/ipaymu.js sudah dibuat best-effort (mapping status selonggar
+// mungkin) TAPI ini hanya sebagai fallback tambahan — sumber utama status
+// IPAYMU tetap webhook callback di POST /api/payments/ipaymu/notification,
+// yang skemanya sudah dikonfirmasi dari dokumentasi resmi
+// docs.ipaymu.com/id/docs/callback. Kalau active-sync ini gagal atau salah
+// baca skema, statusnya cukup tetap PENDING (tidak menimpa jadi salah).
 async function syncPendingPayments(order) {
   let anyPaid = false;
 
@@ -118,6 +129,16 @@ async function syncPendingPayments(order) {
         else if (statusResp.transactionStatus === "EXPIRED" || statusResp.orderStatus === "ORDER_EXPIRED") newStatus = "EXPIRED";
         if (newStatus !== payment.status) {
           await prisma.payment.update({ where: { id: payment.id }, data: { status: newStatus, dokuRaw: statusResp.raw } });
+          if (newStatus === "PAID") anyPaid = true;
+        }
+      } else if (payment.method === "IPAYMU" && payment.ipaymuSessionId && isIpaymuConfigured()) {
+        const statusResp = await checkIpaymuStatus(payment.ipaymuSessionId);
+        let newStatus = payment.status;
+        if (statusResp.normalizedStatus === "PAID") newStatus = "PAID";
+        else if (statusResp.normalizedStatus === "FAILED") newStatus = "FAILED";
+        else if (statusResp.normalizedStatus === "EXPIRED") newStatus = "EXPIRED";
+        if (newStatus !== payment.status) {
+          await prisma.payment.update({ where: { id: payment.id }, data: { status: newStatus, ipaymuRaw: statusResp.raw } });
           if (newStatus === "PAID") anyPaid = true;
         }
       }
@@ -251,6 +272,10 @@ router.post(
         // Refund otomatis via API Doku tidak diimplementasikan di sini —
         // ajukan refund manual lewat Doku Back Office atau hubungi Doku Support.
         refundNotes.push(`Payment ${payment.id}: pembayaran via Doku, refund dana perlu diajukan manual lewat Doku Back Office.`);
+      } else if (payment.method === "IPAYMU") {
+        // Refund otomatis via API iPaymu tidak diimplementasikan di sini —
+        // ajukan refund manual lewat Dashboard iPaymu atau hubungi iPaymu Support.
+        refundNotes.push(`Payment ${payment.id}: pembayaran via iPaymu, refund dana perlu diajukan manual lewat Dashboard iPaymu.`);
       }
     }
 

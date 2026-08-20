@@ -1,0 +1,58 @@
+# ====== Database ======
+DATABASE_URL="postgresql://neondb_owner:npg_zaFk51JLIKHe@ep-calm-poetry-azmsqcv6-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
+# ====== Server ======
+PORT=4000
+CLIENT_URL="https://dmplus-web.vercel.app"
+JWT_SECRET="ganti_dengan_random_string_yang_panjang"
+
+# Kalau tidak diisi, otomatis pakai JWT_SECRET di atas.
+CAPTCHA_SECRET="ganti_dengan_random_string_lain_yang_panjang"
+
+# ====== Bank Transfer manual (tampil di halaman checkout) ======
+BANK_NAME="Mandiri"
+BANK_ACCOUNT_NUMBER="876782766373421"
+BANK_ACCOUNT_HOLDER="RACHMADINATA"
+
+# ====== Midtrans (Sandbox dulu, ganti ke production saat live) ======
+MIDTRANS_SERVER_KEY="SB-Mid-server-q8xLm7Iuo5qpTZrsbhTo0IFS"
+MIDTRANS_CLIENT_KEY="SB-Mid-client-pqB-7fz8f3olG9M-"
+MIDTRANS_IS_PRODUCTION=false
+
+# ====== Doku (Sandbox dulu, ganti ke production saat live) ======
+DOKU_CLIENT_ID="BRN-0220-1785643576026"
+DOKU_SECRET_KEY="SK-did6lEMSMfxXulNEXBDl"
+DOKU_IS_PRODUCTION="true"
+
+# ====== iPaymu (Sandbox dulu, ganti ke production saat live) ======
+# Ambil dari Dashboard iPaymu > menu Integrasi:
+#   Sandbox:    https://sandbox.ipaymu.com  (daftar akun baru, tanpa verifikasi)
+#   Production: https://my.ipaymu.com
+# IPAYMU_VA juga dipakai sebagai secret key untuk verifikasi signature callback.
+# IPAYMU_VA="1179005162701391"
+# IPAYMU_API_KEY="B08EC14F-C2D5-4FF4-82F3-B175B0CE94CC"
+# IPAYMU_IS_PRODUCTION="true"
+
+IPAYMU_VA="1179005162701391"
+IPAYMU_API_KEY="B08EC14F-C2D5-4FF4-82F3-B175B0CE94CC"
+IPAYMU_IS_PRODUCTION="false"
+
+# ====== Gmail (untuk kirim notifikasi order & status pembayaran) ======
+# Gunakan Gmail App Password (bukan password akun biasa):
+# https://myaccount.google.com/apppasswords  (butuh 2FA aktif dulu)
+GMAIL_USER="rachmadmap@gmail.com"
+GMAIL_APP_PASSWORD="gsdaybgrvvsqjgqn"
+NOTIFY_ADMIN_EMAIL="rachmadmap@gmail.com"
+
+# ====== WhatsApp (tombol chat, tanpa auto-reply) ======
+WHATSAPP_NUMBER="6285162701391"
+
+# ====== Sentry (error monitoring) ======
+# Ambil DSN dari Sentry.io > Project Settings > Client Keys (DSN).
+# Kalau kosong, Sentry otomatis nonaktif (tidak akan error, cuma warning di log).
+SENTRY_DSN="https://bd1afe7a8ea50023311a8ad1667011c8@o4511832123965440.ingest.us.sentry.io/4511832161517568"
+SENTRY_ENVIRONMENT="production"
+# Persentase request yang di-trace untuk data performa (0.0 - 1.0). 0.1 = 10%.
+SENTRY_TRACES_SAMPLE_RATE=0.1
+
+

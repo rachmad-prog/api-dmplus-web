@@ -31,6 +31,7 @@ const updateSchema = z.object({
   enableBankTransfer: z.boolean().optional(),
   enableMidtrans: z.boolean().optional(),
   enableDoku: z.boolean().optional(),
+  enableIpaymu: z.boolean().optional(),
 });
 
 // PUT /api/site-settings (admin) — ubah mode pricing card & kontrol metode
@@ -49,9 +50,10 @@ router.put(
     const nextBankTransfer = parsed.data.enableBankTransfer ?? row.enableBankTransfer;
     const nextMidtrans = parsed.data.enableMidtrans ?? row.enableMidtrans;
     const nextDoku = parsed.data.enableDoku ?? row.enableDoku;
-    if (!nextBankTransfer && !nextMidtrans && !nextDoku) {
+    const nextIpaymu = parsed.data.enableIpaymu ?? row.enableIpaymu;
+    if (!nextBankTransfer && !nextMidtrans && !nextDoku && !nextIpaymu) {
       return res.status(400).json({
-        error: "Minimal satu metode pembayaran (Transfer Bank Manual, Midtrans, atau Doku) harus tetap aktif",
+        error: "Minimal satu metode pembayaran (Transfer Bank Manual, Midtrans, Doku, atau iPaymu) harus tetap aktif",
       });
     }
 

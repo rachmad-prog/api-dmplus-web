@@ -22,6 +22,7 @@ enum PaymentMethod {
   BANK_TRANSFER   // manual transfer ke rekening, diverifikasi admin
   MIDTRANS        // via Midtrans Snap (VA, e-wallet, kartu, dll)
   DOKU            // via Doku Checkout (VA, e-wallet, kartu, dll)
+  IPAYMU          // via iPaymu Redirect Payment (VA, e-wallet, QRIS, kartu, dll)
 }
 
 enum PaymentStatus {
@@ -95,6 +96,12 @@ model Payment {
   dokuPaymentUrl    String?
   dokuRaw           Json?
 
+  // iPaymu
+  ipaymuReferenceId String?      @unique
+  ipaymuSessionId   String?
+  ipaymuPaymentUrl  String?
+  ipaymuRaw         Json?
+
   // Bank transfer manual
   bankSenderName  String?
   bankProofUrl    String?
@@ -141,6 +148,7 @@ model SiteSetting {
   enableBankTransfer  Boolean  @default(true)  // Transfer Bank Manual
   enableMidtrans      Boolean  @default(true)  // Bayar Otomatis via Midtrans (VA/E-wallet/Kartu)
   enableDoku          Boolean  @default(true)  // Bayar Otomatis via Doku Checkout (VA/E-wallet/Kartu)
+  enableIpaymu        Boolean  @default(true)  // Bayar Otomatis via iPaymu (VA/E-wallet/QRIS/Kartu)
 
   updatedAt           DateTime @updatedAt
 }

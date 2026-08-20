@@ -45,6 +45,10 @@ app.use(
     },
   })
 );
+// Callback iPaymu secara default dikirim sebagai x-www-form-urlencoded (bisa
+// diubah ke application/json dari dashboard iPaymu, yang sudah tercakup oleh
+// express.json() di atas) — parser ini menangani mode default tersebut.
+app.use(express.urlencoded({ extended: true }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
